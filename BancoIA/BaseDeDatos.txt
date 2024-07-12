@@ -1,0 +1,29 @@
+-- Crear la tabla de usuarios
+CREATE TABLE usuario (
+                         id SERIAL PRIMARY KEY,
+                         nombre VARCHAR(50),
+                         apellido VARCHAR(50),
+                         correo VARCHAR(100) UNIQUE NOT NULL,
+                         contraseña VARCHAR(100) NOT NULL
+);
+
+-- Crear la tabla de balances
+CREATE TABLE balance (
+                         id SERIAL PRIMARY KEY,
+                         usuario_id INTEGER REFERENCES usuario(id),
+                         dinero INTEGER
+);
+
+CREATE OR REPLACE FUNCTION insertar_balance()
+    RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO balance(usuario_id, dinero) VALUES (NEW.id, 0);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER trigger_insertar_balance
+    AFTER INSERT ON usuario
+    FOR EACH ROW
+EXECUTE FUNCTION insertar_balance();

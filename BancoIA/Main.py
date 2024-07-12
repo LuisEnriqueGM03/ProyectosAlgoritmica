@@ -1,3 +1,5 @@
+import tkinter as tk
+from tkinter import messagebox
 import math
 import cv2
 from ultralytics import YOLO
@@ -24,12 +26,12 @@ def create_connection():
 # Autenticación del usuario
 def login(conn, correo, contraseña):
     cur = conn.cursor()
-    cur.execute("SELECT id, nombre, apellido FROM usuario WHERE correo=%s AND contraseña=%s", (correo, contraseña))
+    cur.execute("SELECT id, nombre, apellido, (SELECT dinero FROM balance WHERE usuario_id = usuario.id) as balance FROM usuario WHERE correo=%s AND contraseña=%s", (correo, contraseña))
     user = cur.fetchone()
     cur.close()
     if user:
         print("Login exitoso")
-        return user[0]
+        return user
     else:
         print("Correo o contraseña incorrectos")
         return None
@@ -51,8 +53,10 @@ def register(conn, nombre, apellido, correo, contraseña):
 
 # Clase BankIA
 class BankIA:
-    def __init__(self, user_id):
-        self.user_id = user_id
+    def __init__(self, user):
+        self.user_id = user[0]
+        self.user_name = user[1]
+        self.balance = user[3]
         self.conn = create_connection()
 
         # VideoCapture
@@ -67,11 +71,18 @@ class BankIA:
         # Modelos
         self.billModel = YOLO('BilleteV1.pt')
 
-        # Clases de billetes
+        # Clases de billetes y sus colores
         self.clsBillBank = ['200bs', '20bs', '100bs', '10bs', '50bs']
+        self.bill_colors = {
+            '10bs': (0, 255, 0),  # Verde
+            '20bs': (0, 165, 255),  # Naranja
+            '50bs': (255, 0, 255),  # Morado
+            '100bs': (0, 0, 255),  # Rojo
+            '200bs': (42, 42, 165)  # Café
+        }
 
         # Balance total y balance temporal
-        self.total_balance = 0
+        self.total_balance = self.balance
         self.temp_balance = 0
 
     def balance_process(self, bill_type):
@@ -107,12 +118,13 @@ class BankIA:
                 conf = math.ceil(box.conf[0])
 
                 bill_type = self.clsBillBank[cls]
+                color = self.bill_colors[bill_type]
                 text_obj = f'{self.clsBillBank[cls]} {int(conf * 100)}%'
                 balance = self.balance_process(bill_type)
 
                 size_obj, thickness_obj = 0.75, 1
-                frame = self.draw_text(frame, (0, 255, 0), text_obj, x1, y1, size_obj, thickness_obj, back=True)
-                frame = self.draw_area(frame, (0, 255, 0), x1, y1, x2, y2)
+                frame = self.draw_text(frame, color, text_obj, x1, y1, size_obj, thickness_obj, back=True)
+                frame = self.draw_area(frame, color, x1, y1, x2, y2)
 
                 return frame, balance
         return frame, 0
@@ -132,11 +144,12 @@ class BankIA:
 
     def update_balance(self):
         cur = self.conn.cursor()
-        cur.execute("UPDATE balance SET dinero = dinero + %s WHERE usuario_id = %s", (self.total_balance, self.user_id))
+        cur.execute("UPDATE balance SET dinero = dinero + %s WHERE usuario_id = %s RETURNING dinero", (self.temp_balance, self.user_id))
+        new_balance = cur.fetchone()[0]
         self.conn.commit()
         cur.close()
-        print(f"Balance de {self.total_balance} actualizado en la base de datos para el usuario {self.user_id}")
-        self.total_balance = 0
+        self.total_balance = new_balance
+        return new_balance
 
     def bancoIA(self):
         while True:
@@ -158,9 +171,9 @@ class BankIA:
                 self.temp_balance += balance
                 print(f"Saldo de {balance} bs guardado temporalmente.")
             if key == ord('s'):
-                self.total_balance += self.temp_balance
-                self.update_balance()
-                print("Programa finalizado.")
+                new_balance = self.update_balance()
+                self.show_balance_popup(self.temp_balance, new_balance)
+                self.temp_balance = 0  # Reiniciar el saldo temporal después de actualizar
                 break
             if key == 27:
                 break
@@ -168,32 +181,128 @@ class BankIA:
         self.cap.release()
         cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-    conn = create_connection()
-    if conn is not None:
-        # Menú principal para iniciar sesión o registrarse
-        while True:
-            print("1. Iniciar sesión")
-            print("2. Registrarse")
-            choice = input("Seleccione una opción: ")
+    def show_balance_popup(self, added_balance, new_balance):
+        popup = tk.Tk()
+        popup.title("Balance Actualizado")
 
-            if choice == '1':
-                correo = input("Ingrese su correo: ")
-                contraseña = input("Ingrese su contraseña: ")
-                user_id = login(conn, correo, contraseña)
-                if user_id:
-                    bank_ia = BankIA(user_id)
-                    bank_ia.bancoIA()
-                    break
-            elif choice == '2':
-                nombre = input("Ingrese su nombre: ")
-                apellido = input("Ingrese su apellido: ")
-                correo = input("Ingrese su correo: ")
-                contraseña = input("Ingrese su contraseña: ")
-                user_id = register(conn, nombre, apellido, correo, contraseña)
-                if user_id:
-                    bank_ia = BankIA(user_id)
-                    bank_ia.bancoIA()
-                    break
+        label_info = tk.Label(popup, text=f"Usuario: {self.user_name}\nSe añadieron: {added_balance} bs\nSu balance actual es de: {new_balance} bs")
+        label_info.pack(pady=10)
+
+        button_frame = tk.Frame(popup)
+        button_frame.pack(pady=10)
+
+        volver_button = tk.Button(button_frame, text="Volver al inicio", command=lambda: self.return_to_dashboard(popup))
+        volver_button.grid(row=0, column=0, padx=10)
+
+        aceptar_button = tk.Button(button_frame, text="Aceptar", command=popup.destroy)
+        aceptar_button.grid(row=0, column=1, padx=10)
+
+        popup.mainloop()
+
+    def return_to_dashboard(self, popup):
+        popup.destroy()
+        dashboard = Dashboard(tk.Tk(), (self.user_id, self.user_name, '', self.total_balance))
+
+class Dashboard:
+    def __init__(self, root, user):
+        self.root = root
+        self.user = user
+        self.root.title("Dashboard")
+
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(pady=20)
+
+        self.label_name = tk.Label(self.main_frame, text=f"Bienvenido, {self.user[1]}")
+        self.label_name.grid(row=0, column=0, columnspan=2)
+
+        self.label_balance = tk.Label(self.main_frame, text=f"Balance actual: {self.user[3]} bs")
+        self.label_balance.grid(row=1, column=0, columnspan=2, pady=10)
+
+        self.cargar_saldo_button = tk.Button(self.main_frame, text="Cargar Saldo", command=self.start_bankia)
+        self.cargar_saldo_button.grid(row=2, column=0, columnspan=2)
+
+    def start_bankia(self):
+        self.root.destroy()
+        bank_ia = BankIA(self.user)
+        bank_ia.bancoIA()
+
+class LoginApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Login/Register")
+        self.conn = create_connection()
+
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(pady=20)
+
+        self.label_title = tk.Label(self.main_frame, text="Bienvenido al Banco IA")
+        self.label_title.grid(row=0, column=0, columnspan=2)
+
+        self.label_correo = tk.Label(self.main_frame, text="Correo:")
+        self.label_correo.grid(row=1, column=0)
+        self.entry_correo = tk.Entry(self.main_frame)
+        self.entry_correo.grid(row=1, column=1)
+
+        self.label_contraseña = tk.Label(self.main_frame, text="Contraseña:")
+        self.label_contraseña.grid(row=2, column=0)
+        self.entry_contraseña = tk.Entry(self.main_frame, show="*")
+        self.entry_contraseña.grid(row=2, column=1)
+
+        self.login_button = tk.Button(self.main_frame, text="Iniciar sesión", command=self.login)
+        self.login_button.grid(row=3, column=0, columnspan=2, pady=10)
+
+        self.register_button = tk.Button(self.main_frame, text="Registrarse", command=self.register)
+        self.register_button.grid(row=4, column=0, columnspan=2)
+
+    def login(self):
+        correo = self.entry_correo.get()
+        contraseña = self.entry_contraseña.get()
+        user = login(self.conn, correo, contraseña)
+        if user:
+            self.root.destroy()
+            dashboard = Dashboard(tk.Tk(), user)
+        else:
+            messagebox.showerror("Error", "Correo o contraseña incorrectos")
+
+    def register(self):
+        reg_window = tk.Toplevel(self.root)
+        reg_window.title("Registro")
+
+        reg_frame = tk.Frame(reg_window)
+        reg_frame.pack(pady=20)
+
+        tk.Label(reg_frame, text="Nombre:").grid(row=0, column=0)
+        entry_nombre = tk.Entry(reg_frame)
+        entry_nombre.grid(row=0, column=1)
+
+        tk.Label(reg_frame, text="Apellido:").grid(row=1, column=0)
+        entry_apellido = tk.Entry(reg_frame)
+        entry_apellido.grid(row=1, column=1)
+
+        tk.Label(reg_frame, text="Correo:").grid(row=2, column=0)
+        entry_correo = tk.Entry(reg_frame)
+        entry_correo.grid(row=2, column=1)
+
+        tk.Label(reg_frame, text="Contraseña:").grid(row=3, column=0)
+        entry_contraseña = tk.Entry(reg_frame, show="*")
+        entry_contraseña.grid(row=3, column=1)
+
+        def submit_registration():
+            nombre = entry_nombre.get()
+            apellido = entry_apellido.get()
+            correo = entry_correo.get()
+            contraseña = entry_contraseña.get()
+            user_id = register(self.conn, nombre, apellido, correo, contraseña)
+            if user_id:
+                messagebox.showinfo("Éxito", "Registro exitoso")
+                reg_window.destroy()
             else:
-                print("Opción no válida. Intente de nuevo.")
+                messagebox.showerror("Error", "Error al registrar usuario")
+
+        submit_button = tk.Button(reg_frame, text="Registrar", command=submit_registration)
+        submit_button.grid(row=4, column=0, columnspan=2, pady=10)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = LoginApp(root)
+    root.mainloop()
