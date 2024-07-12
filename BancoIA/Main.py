@@ -64,12 +64,17 @@ class BankIA:
         self.cap.set(3, 1280)
         self.cap.set(4, 720)
 
-        # Utilizar PyTorch con la GPU
+        # Configuración del dispositivo para modelos .pt y .onnx
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"Using device: {self.device}")
 
-        # Modelos
-        self.billModel = YOLO('BilleteV1.pt')
+        # Ruta del modelo
+        model_path = 'models/BilleteV2.onnx'  # Reemplaza con el camino correcto a tu modelo .onnx o .pt
+        self.billModel = YOLO(model_path)
+
+        # Mover modelo a GPU si es un modelo .pt y CUDA está disponible
+        if model_path.endswith('.pt') and self.device == 'cuda':
+            self.billModel.to(self.device)
 
         # Clases de billetes y sus colores
         self.clsBillBank = ['200bs', '20bs', '100bs', '10bs', '50bs']
@@ -102,7 +107,7 @@ class BankIA:
         """
         Realiza la predicción y devuelve el frame y el balance detectado.
         """
-        results = self.billModel(frame, device=self.device)
+        results = self.billModel(frame)
         for res in results:
             boxes = res.boxes
             for box in boxes:
