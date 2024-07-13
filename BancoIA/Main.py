@@ -7,7 +7,6 @@ import torch
 import psycopg2
 from psycopg2 import OperationalError, sql
 
-# Función para crear la conexión a la base de datos
 def create_connection():
     try:
         conn = psycopg2.connect(
@@ -23,7 +22,7 @@ def create_connection():
         print(f"The error '{e}' occurred")
         return None
 
-# Autenticación del usuario
+
 def login(conn, correo, contraseña):
     cur = conn.cursor()
     cur.execute("SELECT id, nombre, apellido, (SELECT dinero FROM balance WHERE usuario_id = usuario.id) as balance FROM usuario WHERE correo=%s AND contraseña=%s", (correo, contraseña))
@@ -36,7 +35,7 @@ def login(conn, correo, contraseña):
         print("Correo o contraseña incorrectos")
         return None
 
-# Registro del usuario
+
 def register(conn, nombre, apellido, correo, contraseña):
     try:
         cur = conn.cursor()
@@ -51,7 +50,7 @@ def register(conn, nombre, apellido, correo, contraseña):
         print(f"Error al registrar usuario: {e}")
         return None
 
-# Clase BankIA
+
 class BankIA:
     def __init__(self, user):
         self.user_id = user[0]
@@ -59,34 +58,33 @@ class BankIA:
         self.balance = user[3]
         self.conn = create_connection()
 
-        # VideoCapture
+     
         self.cap = cv2.VideoCapture(0)
         self.cap.set(3, 1280)
         self.cap.set(4, 720)
 
-        # Configuración del dispositivo para modelos .pt y .onnx
+    
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"Using device: {self.device}")
 
-        # Ruta del modelo
-        model_path = 'BilleteV1'  # Reemplaza con el camino correcto a tu modelo .onnx o .pt
+       
+        model_path = 'BilleteV1'  
         self.billModel = YOLO(model_path)
 
-        # Mover modelo a GPU si es un modelo .pt y CUDA está disponible
         if model_path.endswith('.pt') and self.device == 'cuda':
             self.billModel.to(self.device)
 
-        # Clases de billetes y sus colores
+      
         self.clsBillBank = ['200bs', '20bs', '100bs', '10bs', '50bs']
         self.bill_colors = {
-            '10bs': (0, 255, 0),  # Verde
-            '20bs': (0, 165, 255),  # Naranja
-            '50bs': (255, 0, 255),  # Morado
-            '100bs': (0, 0, 255),  # Rojo
-            '200bs': (42, 42, 165)  # Café
+            '10bs': (0, 255, 0),  
+            '20bs': (0, 165, 255),  
+            '50bs': (255, 0, 255),  
+            '100bs': (0, 0, 255),  
+            '200bs': (42, 42, 165)  
         }
 
-        # Balance total y balance temporal
+        
         self.total_balance = self.balance
         self.temp_balance = 0
 
