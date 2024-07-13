@@ -69,7 +69,7 @@ class BankIA:
         print(f"Using device: {self.device}")
 
         # Ruta del modelo
-        model_path = 'models/BilleteV2.onnx'  # Reemplaza con el camino correcto a tu modelo .onnx o .pt
+        model_path = 'BilleteV1'  # Reemplaza con el camino correcto a tu modelo .onnx o .pt
         self.billModel = YOLO(model_path)
 
         # Mover modelo a GPU si es un modelo .pt y CUDA está disponible
